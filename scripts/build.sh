@@ -1,4 +1,3 @@
-
 #!/usr/bin/env bash
 set -Eeuo pipefail
 IFS=$'\n\t'
@@ -40,8 +39,7 @@ ROOT="$WORK/live-root"
 BUILD_OUT="$WORK/kernel-output"
 OVERLAY="$WORK/gentoo-zh"
 
-GENTOO_ISO_BASE="${GENTOO_ISO_BASE:-https://distfiles.gentoo.org/releases/amd64/autobuilds/
-current-install-amd64-minimal}"
+GENTOO_ISO_BASE="${GENTOO_ISO_BASE:-https://distfiles.gentoo.org/releases/amd64/autobuilds/current-install-amd64-minimal}"
 STAGE3_IMAGE="${STAGE3_IMAGE:-gentoo/stage3:latest}"
 PORTAGE_IMAGE="${PORTAGE_IMAGE:-gentoo/portage:latest}"
 
@@ -164,21 +162,27 @@ printf '%s  %s\n' \
   sha256sum -c SHA256SUMS
 )
 
-OLD_SQUASHFS="$WORK/image.squashfs.old"
-OLD_KERNEL="$WORK/gentoo.old"
-OLD_INITRAMFS="$WORK/gentoo.igz.old"
+ISO_TREE="$WORK/iso-tree"
+
+mkdir -p "$ISO_TREE"
 
 xorriso \
   -osirrox on \
   -indev "$ISO_PATH" \
-  -extract /image.squashfs "$OLD_SQUASHFS" \
-  -extract /boot/gentoo "$OLD_KERNEL" \
-  -extract /boot/gentoo.igz "$OLD_INITRAMFS"
+  -extract / "$ISO_TREE"
+
+OLD_SQUASHFS="$ISO_TREE/image.squashfs"
+OLD_KERNEL="$ISO_TREE/boot/gentoo"
+OLD_INITRAMFS="$ISO_TREE/boot/gentoo.igz"
+EFI_IMAGE="$ISO_TREE/efi.img"
+BIOS_BOOT_IMAGE="$ISO_TREE/boot/grub/i386-pc/eltorito.img"
 
 for EXTRACTED_FILE in \
   "$OLD_SQUASHFS" \
   "$OLD_KERNEL" \
-  "$OLD_INITRAMFS"
+  "$OLD_INITRAMFS" \
+  "$EFI_IMAGE" \
+  "$BIOS_BOOT_IMAGE"
 do
   [[ -s "$EXTRACTED_FILE" ]] || {
     echo "Failed to extract: $EXTRACTED_FILE" >&2
@@ -564,20 +568,58 @@ OUTPUT="$OUT_DIR/$OUTPUT_NAME"
 
 rm -f -- "$OUTPUT" "$OUTPUT.sha256"
 
+install -m 0644 \
+  "$NEW_KERNEL" \
+  "$ISO_TREE/boot/gentoo"
+
+install -m 0644 \
+  "$NEW_INITRAMFS" \
+  "$ISO_TREE/boot/gentoo.igz"
+
+install -m 0644 \
+  "$NEW_SQUASHFS" \
+  "$ISO_TREE/image.squashfs"
+
+rm -f -- "$ISO_TREE/boot.catalog"
+
+ISO_DATE=${ISO_NAME#install-amd64-minimal-}
+ISO_DATE=${ISO_DATE%%T*}
+VOLUME_ID="GENTOO_AMD64_${ISO_DATE}"
+MBR_TEMPLATE="--interval:local_fs:0s-15s:zero_mbrpt,zero_gpt:$ISO_PATH"
+
 xorriso \
-  -indev "$ISO_PATH" \
-  -outdev "$OUTPUT" \
-  -overwrite on \
-  -map "$NEW_KERNEL" /boot/gentoo \
-  -map "$NEW_INITRAMFS" /boot/gentoo.igz \
-  -map "$NEW_SQUASHFS" /image.squashfs \
-  -boot_image any replay \
-  -commit
+  -as mkisofs \
+  -r \
+  -V "$VOLUME_ID" \
+  -o "$OUTPUT" \
+  --grub2-mbr "$MBR_TEMPLATE" \
+  --protective-msdos-label \
+  -partition_cyl_align off \
+  -partition_offset 16 \
+  --mbr-force-bootable \
+  -append_partition 2 0xef "$EFI_IMAGE" \
+  -appended_part_as_gpt \
+  -iso_mbr_part_type 0x83 \
+  -c boot.catalog \
+  -b boot/grub/i386-pc/eltorito.img \
+  -no-emul-boot \
+  -boot-load-size 4 \
+  -boot-info-table \
+  --grub2-boot-info \
+  -eltorito-alt-boot \
+  -e '--interval:appended_partition_2:all::' \
+  -no-emul-boot \
+  "$ISO_TREE"
 
 [[ -s "$OUTPUT" ]] || {
   echo "Failed to create the output ISO." >&2
   exit 1
 }
+
+xorriso \
+  -indev "$OUTPUT" \
+  -report_el_torito plain \
+  -report_system_area plain
 
 (
   cd "$OUT_DIR"
