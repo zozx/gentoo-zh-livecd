@@ -63,23 +63,105 @@ mount --make-rslave "$ROOT/dev"
 mount -t proc proc "$ROOT/proc"
 mount -t sysfs sys "$ROOT/sys"
 
-chroot "$ROOT" /bin/bash -euxc '
-  emerge-webrsync
-  emerge --oneshot sys-kernel/gentoo-cjk-kernel-bin::gentoo-zh
-'
+BUILD_OUT="$WORK/kernel-output"
+OVERLAY="$WORK/gentoo-zh"
+PORTAGE_CONTAINER="gentoo-portage-${RANDOM}"
+
+mkdir -p "$BUILD_OUT"
+
+git clone --depth 1 \
+  https://github.com/gentoo-zh/overlay.git "$OVERLAY"
+
+docker pull gentoo/stage3:latest
+docker pull gentoo/portage:latest
+
+docker create \
+  --name "$PORTAGE_CONTAINER" \
+  gentoo/portage:latest /bin/true
+
+trap 'docker rm -f "$PORTAGE_CONTAINER" >/dev/null 2>&1 || true' EXIT
+
+docker run --rm \
+  --platform linux/amd64 \
+  --volumes-from "$PORTAGE_CONTAINER:ro" \
+  --mount type=bind,src="$OVERLAY",dst=/var/db/repos/gentoo-zh,readonly \
+  --mount type=bind,src="$BUILD_OUT",dst=/output \
+  gentoo/stage3:latest \
+  /bin/bash -euxc '
+    mkdir -p \
+      /etc/portage/repos.conf \
+      /etc/portage/package.accept_keywords \
+      /etc/portage/package.use \
+      /etc/kernel
+
+    cat > /etc/portage/repos.conf/gentoo-zh.conf <<EOF
+[gentoo-zh]
+location = /var/db/repos/gentoo-zh
+masters = gentoo
+auto-sync = no
+EOF
+
+    echo "sys-kernel/gentoo-cjk-kernel-bin ~amd64" \
+      > /etc/portage/package.accept_keywords/cjk-kernel
+
+    echo "sys-kernel/gentoo-cjk-kernel-bin cjk -generic-uki" \
+      > /etc/portage/package.use/cjk-kernel
+
+    cat > /etc/kernel/install.conf <<EOF
+layout=compat
+initrd_generator=none
+uki_generator=none
+EOF
+
+    emerge --oneshot --verbose \
+      sys-kernel/gentoo-cjk-kernel-bin::gentoo-zh
+
+    KV=$(
+      find -L /lib/modules \
+        -mindepth 1 -maxdepth 1 -type d \
+        -name "*-gentoo-cjk-dist-bin" \
+        -printf "%f\n" |
+      sort -V |
+      tail -1
+    )
+
+    test -n "$KV"
+    test -f "/usr/src/linux-$KV/arch/x86/boot/bzImage"
+
+    cp "/usr/src/linux-$KV/arch/x86/boot/bzImage" \
+      /output/gentoo
+
+    mkdir -p /output/modules
+    cp -a "/lib/modules/$KV" /output/modules/
+    printf "%s\n" "$KV" > /output/kernel-version
+  '
+
+docker rm -f "$PORTAGE_CONTAINER"
+trap - EXIT
 
 cleanup
 
-KV=$(find -L "$ROOT/lib/modules" -mindepth 1 -maxdepth 1 \
-  -type d -name '*-gentoo-cjk-dist-bin' -printf '%f\n' | sort -V | tail -1)
+KV=$(<"$BUILD_OUT/kernel-version")
 
-[[ -n $KV ]] || { echo "CJK kernel was not installed"; exit 1; }
+cp "$BUILD_OUT/gentoo" "$WORK/gentoo.new"
 
-cp "$ROOT/usr/src/linux-$KV/arch/x86/boot/bzImage" gentoo.new
+LIVE_MODULES="$ROOT/lib/modules"
+mkdir -p "$LIVE_MODULES"
 
+find "$LIVE_MODULES" -mindepth 1 -maxdepth 1 \
+  -type d -exec rm -rf -- {} +
 
-cp -a "$ROOT/lib/modules/$KV" initramfs/lib/modules/
+cp -a "$BUILD_OUT/modules/$KV" "$LIVE_MODULES/"
 
+if [[ -L "$WORK/initramfs/lib" ]]; then
+  INIT_MODULES="$WORK/initramfs/usr/lib/modules"
+else
+  INIT_MODULES="$WORK/initramfs/lib/modules"
+fi
+
+rm -rf "$INIT_MODULES"
+mkdir -p "$INIT_MODULES"
+cp -a "$BUILD_OUT/modules/$KV" "$INIT_MODULES/"
 
 mksquashfs "$ROOT" image.squashfs.new \
   -noappend -no-progress -comp xz -b 1M
