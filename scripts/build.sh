@@ -584,7 +584,7 @@ rm -f -- "$ISO_TREE/boot.catalog"
 
 ISO_DATE=${ISO_NAME#install-amd64-minimal-}
 ISO_DATE=${ISO_DATE%%T*}
-VOLUME_ID="GENTOO_AMD64_${ISO_DATE}"
+VOLUME_ID="Gentoo-amd64-${ISO_DATE}"
 MBR_TEMPLATE="--interval:local_fs:0s-15s:zero_mbrpt,zero_gpt:$ISO_PATH"
 
 xorriso \
