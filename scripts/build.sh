@@ -75,6 +75,9 @@ EOF
     echo "sys-kernel/gentoo-cjk-kernel-bin ~amd64" \
       > /etc/portage/package.accept_keywords/cjk-kernel
 
+    echo "virtual/dist-kernel::gentoo-zh ~amd64" \
+      > /etc/portage/package.accept_keywords/dist-kernel
+
     echo "sys-kernel/gentoo-cjk-kernel-bin cjk -generic-uki" \
       > /etc/portage/package.use/cjk-kernel
 
