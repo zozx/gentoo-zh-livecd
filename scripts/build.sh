@@ -33,36 +33,6 @@ xorriso -osirrox on -indev "$ISO" \
 
 unsquashfs -d "$ROOT" image.squashfs
 
-git clone --depth 1 https://github.com/gentoo-zh/overlay.git \
-  "$ROOT/var/db/repos/gentoo-zh"
-
-mkdir -p "$ROOT/etc/portage/repos.conf" \
-  "$ROOT/etc/portage/package.accept_keywords" \
-  "$ROOT/etc/portage/package.use" \
-  "$ROOT/etc/kernel"
-
-printf '%s\n' \
-  '[gentoo-zh]' \
-  'location = /var/db/repos/gentoo-zh' \
-  'masters = gentoo' \
-  'auto-sync = no' \
-  > "$ROOT/etc/portage/repos.conf/gentoo-zh.conf"
-
-echo 'sys-kernel/gentoo-cjk-kernel-bin ~amd64' \
-  > "$ROOT/etc/portage/package.accept_keywords/cjk-kernel"
-
-echo 'sys-kernel/gentoo-cjk-kernel-bin cjk -generic-uki' \
-  > "$ROOT/etc/portage/package.use/cjk-kernel"
-
-printf '%s\n' 'layout=compat' 'initrd_generator=none' \
-  'uki_generator=none' > "$ROOT/etc/kernel/install.conf"
-
-cp -L /etc/resolv.conf "$ROOT/etc/resolv.conf"
-mount --rbind /dev "$ROOT/dev"
-mount --make-rslave "$ROOT/dev"
-mount -t proc proc "$ROOT/proc"
-mount -t sysfs sys "$ROOT/sys"
-
 BUILD_OUT="$WORK/kernel-output"
 OVERLAY="$WORK/gentoo-zh"
 PORTAGE_CONTAINER="gentoo-portage-${RANDOM}"
@@ -92,6 +62,7 @@ docker run --rm \
       /etc/portage/repos.conf \
       /etc/portage/package.accept_keywords \
       /etc/portage/package.use \
+      /etc/portage/package.unmask \
       /etc/kernel
 
     cat > /etc/portage/repos.conf/gentoo-zh.conf <<EOF
@@ -106,6 +77,9 @@ EOF
 
     echo "sys-kernel/gentoo-cjk-kernel-bin cjk -generic-uki" \
       > /etc/portage/package.use/cjk-kernel
+
+    echo "virtual/dist-kernel::gentoo-zh" \
+      > /etc/portage/package.unmask/dist-kernel
 
     cat > /etc/kernel/install.conf <<EOF
 layout=compat
