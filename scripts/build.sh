@@ -80,6 +80,9 @@ EOF
 
     echo "sys-kernel/gentoo-cjk-kernel-bin cjk -generic-uki" \
       > /etc/portage/package.use/cjk-kernel
+    
+    echo "sys-kernel/installkernel dracut" \
+      > /etc/portage/package.use/installkernel
 
     echo "virtual/dist-kernel::gentoo-zh" \
       > /etc/portage/package.unmask/dist-kernel
