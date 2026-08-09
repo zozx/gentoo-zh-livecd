@@ -22,14 +22,38 @@ echo "==> 2. 解包 ISO 與 SquashFS..."
 7z x "${WORK_DIR}/gentoo-base.iso" -o"${ISO_DIR}" > /dev/null
 unsquashfs -d "${SQUASH_DIR}" "${ISO_DIR}/image.squashfs"
 
-echo "==> 3. 掛載 Chroot 目錄..."
+echo "==> 3. 在 Host 端預先為 LiveCD 補全 Portage 套件庫 (Gentoo Main + gentoo-zh)..."
+mkdir -p "${SQUASH_DIR}/var/db/repos/gentoo"
+mkdir -p "${SQUASH_DIR}/var/db/repos/gentoo-zh"
+mkdir -p "${SQUASH_DIR}/etc/portage/repos.conf"
+
+# 下載官方 Portage Snapshot 並解包
+wget -q https://distfiles.gentoo.org/snapshots/portage-latest.tar.xz -O "${WORK_DIR}/portage-latest.tar.xz"
+tar -xf "${WORK_DIR}/portage-latest.tar.xz" -C "${SQUASH_DIR}/var/db/repos/gentoo" --strip-components=1
+
+# 直接 Clone gentoo-zh repo (免在 Chroot 內配置 eselect/emaint)
+git clone --depth 1 https://github.com/microcai/gentoo-zh.git "${SQUASH_DIR}/var/db/repos/gentoo-zh"
+
+# 寫入 repos.conf 設定
+cat << 'EOF' > "${SQUASH_DIR}/etc/portage/repos.conf/repos.conf"
+[DEFAULT]
+main-repo = gentoo
+
+[gentoo]
+location = /var/db/repos/gentoo
+
+[gentoo-zh]
+location = /var/db/repos/gentoo-zh
+priority = 100
+EOF
+
+echo "==> 4. 掛載 Chroot 目錄..."
 mount -t proc proc "${SQUASH_DIR}/proc"
 mount --bind /sys "${SQUASH_DIR}/sys"
 mount --bind /dev "${SQUASH_DIR}/dev"
 mount --bind /dev/pts "${SQUASH_DIR}/dev/pts"
 cp /etc/resolv.conf "${SQUASH_DIR}/etc/resolv.conf"
 
-# 定義離場清理掛載點的機制
 cleanup() {
     echo "==> 清理 Chroot 掛載點..."
     umount -l "${SQUASH_DIR}/dev/pts" 2>/dev/null || true
@@ -39,41 +63,40 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "==> 4. 進入 Chroot 替換內核..."
+echo "==> 5. 進入 Chroot 替換內核..."
 chroot "${SQUASH_DIR}" /bin/bash -s << 'EOF'
 set -e
+
+# 明確匯入 Gentoo 的執行路徑 (解決 command not found)
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 env-update && source /etc/profile
 
-# 1. 啟用 gentoo-zh overlay (內含 gentoo-cjk-kernel-bin)
-eselect repository enable gentoo-zh || true
-emaint sync -r gentoo-zh
-
-# 2. 強制僅安裝內核 (--nodeps 確保不觸動/升級任何其他 LiveCD 套件)
+echo "==> 開始安裝 gentoo-cjk-kernel-bin..."
+# 使用 --nodeps 確保完全不更動 LiveCD 原有的其他套件
 emerge --nodeps sys-kernel/gentoo-cjk-kernel-bin
 
-# 3. 抓取新安裝的內核版本號
+# 抓取新內核版本號
 NEW_KVER=$(ls /lib/modules | sort -V | tail -n 1)
 echo "新內核版本號: ${NEW_KVER}"
 
-# 4. 重建 initramfs (必須夾帶 liveCD 專用的 dmsquash-live 模組)
+echo "==> 重新生成對應內核的 LiveCD Initramfs..."
 dracut --kver "${NEW_KVER}" --force --add "dmsquash-live live" /boot/initramfs-cjk.img
 
-# 5. 清理下載快取與套件庫，避免 SquashFS 體積膨脹
+echo "==> 清理套件庫與快取 (控制 ISO 體積)..."
 rm -rf /var/cache/distfiles/* /var/db/repos/*
 EOF
 
-echo "==> 5. 覆蓋 ISO 開機引導目錄下的內核與 Initramfs..."
+echo "==> 6. 覆蓋 ISO 開機引導目錄下的內核與 Initramfs..."
 NEW_KERNEL=$(ls -t ${SQUASH_DIR}/boot/vmlinuz-* | head -n 1)
 
-# 直接替換 ISO 原有的啟動檔 (Gentoo 預設為 /boot/gentoo 與 /boot/gentoo.igz)
 cp -f "${NEW_KERNEL}" "${ISO_DIR}/boot/gentoo"
 cp -f "${SQUASH_DIR}/boot/initramfs-cjk.img" "${ISO_DIR}/boot/gentoo.igz"
 
-echo "==> 6. 重新打包 SquashFS..."
+echo "==> 7. 重新打包 SquashFS..."
 rm -f "${ISO_DIR}/image.squashfs"
 mksquashfs "${SQUASH_DIR}" "${ISO_DIR}/image.squashfs" -comp xz -b 1M
 
-echo "==> 7. 重新打包雙引導 (Legacy BIOS / UEFI) ISO..."
+echo "==> 8. 重新打包雙引導 ISO..."
 xorriso -as mkisofs \
   -r -V "GENTOO_CJK_LIVECD" \
   -J -joliet-long \
@@ -86,4 +109,4 @@ xorriso -as mkisofs \
   -o "${OUTPUT_DIR}/gentoo-cjk-minimal.iso" \
   "${ISO_DIR}"
 
-echo "==> [完成] ISO 已生成於：${OUTPUT_DIR}/gentoo-cjk-minimal.iso"
+echo "==> [完成] ISO 已成功生成於：${OUTPUT_DIR}/gentoo-cjk-minimal.iso"
