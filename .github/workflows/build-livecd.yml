@@ -5,7 +5,8 @@ on:
   schedule:
     - cron: "30 3 * * 1"
   push:
-    tags: ["v*"]
+    tags:
+      - "v*"
 
 permissions:
   contents: write
@@ -26,7 +27,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            cpio curl file git lz4 squashfs-tools xorriso xz-utils zstd
+            cpio \
+            curl \
+            git \
+            gzip \
+            initramfs-tools-core \
+            squashfs-tools \
+            xorriso \
+            xz-utils \
+            zstd
 
       - name: Build ISO
         run: |
