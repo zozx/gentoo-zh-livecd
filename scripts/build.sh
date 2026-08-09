@@ -143,11 +143,93 @@ rm -rf "$INIT_MODULES"
 mkdir -p "$INIT_MODULES"
 cp -a "$BUILD_OUT/modules/$KV" "$INIT_MODULES/"
 
+OLD_INITRAMFS="$WORK/gentoo.igz.old"
+NEW_INITRAMFS="$WORK/gentoo.igz.new"
+INITRAMFS_DIR="$WORK/initramfs"
+
+rm -rf "$INITRAMFS_DIR"
+mkdir -p "$INITRAMFS_DIR"
+
+INITRAMFS_TYPE=$(file -b "$OLD_INITRAMFS")
+echo "Original initramfs: $INITRAMFS_TYPE"
+
+case "$INITRAMFS_TYPE" in
+  *"XZ compressed"*)
+    DECOMPRESS=(xz -dc)
+    COMPRESS=(xz -T0 -9e --check=crc32)
+    ;;
+  *"gzip compressed"*)
+    DECOMPRESS=(gzip -dc)
+    COMPRESS=(gzip -9n)
+    ;;
+  *"Zstandard compressed"*)
+    DECOMPRESS=(zstd -q -dc)
+    COMPRESS=(zstd -q -T0 -19)
+    ;;
+  *"LZ4 compressed"*)
+    DECOMPRESS=(lz4 -q -dc)
+    COMPRESS=(lz4 -q -z -9)
+    ;;
+  *"ASCII cpio archive"*)
+    DECOMPRESS=(cat)
+    COMPRESS=(cat)
+    ;;
+  *)
+    echo "Unsupported initramfs format: $INITRAMFS_TYPE" >&2
+    exit 1
+    ;;
+esac
+
+"${DECOMPRESS[@]}" "$OLD_INITRAMFS" |
+  (
+    cd "$INITRAMFS_DIR"
+    cpio -idm \
+      --quiet \
+      --no-absolute-filenames
+  )
+
+if [[ -L "$INITRAMFS_DIR/lib" ]]; then
+  mkdir -p "$INITRAMFS_DIR/usr/lib"
+  INIT_MODULES="$INITRAMFS_DIR/usr/lib/modules"
+else
+  INIT_MODULES="$INITRAMFS_DIR/lib/modules"
+fi
+
+rm -rf "$INIT_MODULES"
+mkdir -p "$INIT_MODULES"
+
+cp -a "$BUILD_OUT/modules/$KV" "$INIT_MODULES/"
+
+(
+  cd "$INITRAMFS_DIR"
+  find . -print0 |
+    LC_ALL=C sort -z |
+    cpio --null --create --format=newc --quiet
+) | "${COMPRESS[@]}" > "$NEW_INITRAMFS"
+
+[[ -s "$NEW_INITRAMFS" ]] || {
+  echo "Failed to create $NEW_INITRAMFS" >&2
+  exit 1
+}
+
+echo "Created: $NEW_INITRAMFS"
+
 mksquashfs "$ROOT" image.squashfs.new \
   -noappend -no-progress -comp xz -b 1M
 
 
 OUTPUT="$OUT_DIR/gentoo-cjk-minimal-${KV}.iso"
+
+for REQUIRED_FILE in \
+  "$WORK/gentoo.new" \
+  "$WORK/gentoo.igz.new" \
+  "$WORK/image.squashfs.new"
+do
+  [[ -s "$REQUIRED_FILE" ]] || {
+    echo "Missing build artifact: $REQUIRED_FILE" >&2
+    exit 1
+  }
+done
 
 xorriso -indev "$ISO" -outdev "$OUTPUT" \
   -boot_image any replay \
