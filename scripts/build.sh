@@ -567,11 +567,11 @@ rm -f -- "$OUTPUT" "$OUTPUT.sha256"
 xorriso \
   -indev "$ISO_PATH" \
   -outdev "$OUTPUT" \
-  -boot_image any replay \
   -overwrite on \
   -map "$NEW_KERNEL" /boot/gentoo \
   -map "$NEW_INITRAMFS" /boot/gentoo.igz \
   -map "$NEW_SQUASHFS" /image.squashfs \
+  -boot_image any replay \
   -commit
 
 [[ -s "$OUTPUT" ]] || {
