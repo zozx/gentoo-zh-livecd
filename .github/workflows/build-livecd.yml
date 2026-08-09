@@ -1,0 +1,43 @@
+name: Build Gentoo CJK LiveCD
+
+on:
+  schedule:
+    - cron: '0 0 1 * *' # 每月 1 號 00:00 自動執行構建
+  workflow_dispatch:    # 支援在 GitHub 介面上手動點擊觸發
+
+permissions:
+  contents: write       # 允許創建 Releases 並上傳 ISO 檔
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Host Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xorriso squashfs-tools p7zip-full wget curl
+
+      - name: Execute Build Script
+        run: |
+          chmod +x scripts/build.sh
+          sudo ./scripts/build.sh
+
+      - name: Get Current Date
+        id: date
+        run: echo "DATE=$(date +'%Y.%m.%d')" >> $GITHUB_ENV
+
+      - name: Create Release and Upload ISO
+        uses: softprops/action-gh-release@v2
+        with:
+          files: output/gentoo-cjk-minimal.iso
+          tag_name: v${{ env.DATE }}
+          name: Gentoo CJK Minimal LiveCD (${{ env.DATE }})
+          body: |
+            自動構建的 Gentoo Minimal LiveCD。
+            - 內核替換為：`sys-kernel/gentoo-cjk-kernel-bin`
+            - 基礎映像檔：Gentoo Official Minimal LiveCD (amd64)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
