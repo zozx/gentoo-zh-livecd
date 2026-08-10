@@ -266,6 +266,7 @@ EOF
     emerge \
       --oneshot \
       --verbose \
+      --quiet \
       sys-kernel/gentoo-cjk-kernel-bin::gentoo-zh
 
     KV=$(
@@ -296,6 +297,12 @@ EOF
 
     ln -sfn "linux-$KV" /usr/src/linux
 
+    # The CJK kernel package already provides the configured source tree.
+    emerge \
+      --oneshot \
+      --nodeps \
+      virtual/linux-sources
+
     LIVE_MODULES=/live-root/usr/lib/modules
     rm -rf -- "$LIVE_MODULES"
     mkdir -p "$LIVE_MODULES"
@@ -303,9 +310,12 @@ EOF
 
     ROOT=/live-root \
     PORTAGE_CONFIGROOT=/ \
+    KERNEL_DIR="$KERNEL_SOURCE" \
+    KBUILD_OUTPUT="$KERNEL_SOURCE" \
     emerge \
       --oneshot \
       --verbose \
+      --quiet \
       --root-deps=rdeps \
       sys-fs/zfs
 
