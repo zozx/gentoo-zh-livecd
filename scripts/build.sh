@@ -241,6 +241,9 @@ EOF
     cat > /etc/portage/package.accept_keywords/dist-kernel <<EOF
 virtual/dist-kernel::gentoo-zh ~amd64
 EOF
+    cat > /etc/portage/package.accept_keywords/zfs <<EOF
+=sys-fs/zfs-9999 **
+EOF
 
     cat > /etc/portage/package.use/cjk-kernel <<EOF
 sys-kernel/gentoo-cjk-kernel-bin cjk -generic-uki
@@ -254,7 +257,7 @@ EOF
 virtual/dist-kernel::gentoo-zh
 EOF
     cat > /etc/portage/package.use/zfs <<EOF
-sys-fs/zfs modules minimal -python -pam -test-suite -dist-kernel -dist-kernel-cap -initramfs -rootfs
+sys-fs/zfs modules minimal -python -pam -test-suite -dist-kernel -initramfs -rootfs
 EOF
 
     cat > /etc/kernel/install.conf <<EOF
@@ -317,7 +320,7 @@ EOF
       --verbose \
       --quiet \
       --root-deps=rdeps \
-      sys-fs/zfs
+      =sys-fs/zfs-9999
 
     depmod -b /live-root "$KV"
   '
