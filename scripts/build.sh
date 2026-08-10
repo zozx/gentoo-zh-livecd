@@ -213,6 +213,7 @@ docker run \
   --rm \
   --platform linux/amd64 \
   --volumes-from "$PORTAGE_CONTAINER:ro" \
+  --mount "type=bind,src=$ROOT,dst=/live-root" \
   --mount "type=bind,src=$OVERLAY,dst=/var/db/repos/gentoo-zh,readonly" \
   --mount "type=bind,src=$BUILD_OUT,dst=/output" \
   "$STAGE3_IMAGE" \
@@ -252,6 +253,9 @@ EOF
     cat > /etc/portage/package.unmask/dist-kernel <<EOF
 virtual/dist-kernel::gentoo-zh
 EOF
+    cat > /etc/portage/package.use/zfs <<EOF
+sys-fs/zfs modules minimal -python -pam -test-suite -dist-kernel -dist-kernel-cap -initramfs -rootfs
+EOF
 
     cat > /etc/kernel/install.conf <<EOF
 layout=compat
@@ -289,6 +293,23 @@ EOF
     cp -a "/lib/modules/$KV" /output/modules/
     printf "%s\n" "$KV" > /output/kernel-version
     chmod -R a+rX /output
+
+    ln -sfn "linux-$KV" /usr/src/linux
+
+    LIVE_MODULES=/live-root/usr/lib/modules
+    rm -rf -- "$LIVE_MODULES"
+    mkdir -p "$LIVE_MODULES"
+    cp -a "/lib/modules/$KV" "$LIVE_MODULES/"
+
+    ROOT=/live-root \
+    PORTAGE_CONFIGROOT=/ \
+    emerge \
+      --oneshot \
+      --verbose \
+      --root-deps=rdeps \
+      sys-fs/zfs
+
+    depmod -b /live-root "$KV"
   '
 
 docker rm -f "$PORTAGE_CONTAINER" >/dev/null
@@ -344,14 +365,12 @@ fi
 
 mkdir -p "$LIVE_MODULES"
 
-find "$LIVE_MODULES" \
-  -mindepth 1 \
-  -maxdepth 1 \
-  -exec rm -rf -- {} +
+modinfo -b "$ROOT" -k "$KV" zfs >/dev/null
 
-cp -a \
-  "$BUILD_OUT/modules/$KV" \
-  "$LIVE_MODULES/"
+[[ -x "$ROOT/usr/sbin/zpool" ]] || {
+  echo "ZFS userland was not installed." >&2
+  exit 1
+}
 
 UNPACKED_INITRAMFS="$WORK/unpacked-initramfs"
 NEW_INITRAMFS="$WORK/gentoo.igz.new"
